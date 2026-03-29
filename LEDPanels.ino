@@ -3,9 +3,34 @@ This is an Arduino sketch to drive 4 LED panels based on MBI5034 LED drivers.
 
 Written by Oliver Dewdney and Jon Russell
 
-It works specifically on a Arduino Micro (ATMega32U4), as it accesses the 
-registers directly. However, with a small amount of editing, it should work on 
-most Arduinos.
+Adapted by jarkman, 3/26, for ESP32
+
+Runs on an Feather ESP32-S3 2MB PSRAM
+Select esp32/Feather ESP32-S3 2MB PSRAM
+
+Panel details
+
+https://led.limehouselabs.org/docs/tiles/led-tiles-v2/
+
+https://wiki.london.hackspace.org.uk/view/LED_tiles_V2
+
+Discussion of how to drive them
+https://emalliab.wordpress.com/2025/11/01/hackspace-led-panels/
+
+Panel connector is
+D1  Lat  A1  NC
+D2  OE   A0  Clk
+
+PCB edge connector from top is
+
+Gnd
+Clk
+LAT
+OE
+A1
+A0
+D2
+D1
 
 Basic Operation:
 
@@ -62,7 +87,7 @@ can use the graphics functions like drawCircle, drawRect, drawTriangle, plus
 the various text functions and fonts.
 ******************************************************************************/
 
-#include "digitalWriteFast.h"
+
 #include <Adafruit_GFX.h>
 #include <gfxfont.h>
 
@@ -78,23 +103,33 @@ class LedPanel : public Adafruit_GFX
 
 LedPanel panel;
 
-#define PIN_D1    3   //PD0 - D1 on Panel 1
-#define PIN_D2    2   //PD1 - D2 on Panel 1
-#define PIN_D3    0   //PD2 - D1 on Panel 2
-#define PIN_D4    1   //PD3 - D2 on Panel 2
+#define PIN_D1    5   //PD0 - D1 on Panel 1
+#define PIN_D2    6   //PD1 - D2 on Panel 1
+#define PIN_D3    9   //PD2 - D1 on Panel 2
+#define PIN_D4    10   //PD3 - D2 on Panel 2
 
-#define PIN_D5    8   //PB4 - D1 on Panel 3
-#define PIN_D6    9   //PB5 - D2 on Panel 3
-#define PIN_D7    10  //PB6 - D1 on Panel 4
-#define PIN_D8    11  //PB7 - D2 on Panel 4
+#define PIN_D5    11   //PB4 - D1 on Panel 3
+#define PIN_D6    12   //PB5 - D2 on Panel 3
+#define PIN_D7    13  //PB6 - D1 on Panel 4
+#define PIN_D8    A5  //PB7 - D2 on Panel 4
 
-#define PIN_A0    A4  //PF1 - A0 on all Panels
+#define PIN_A0    A0  //PF1 - A0 on all Panels
 #define PIN_A1    A1  //PF6 - A1 on all Panels
-#define PIN_CLK   A3  //PF4 - CLK on all Panels
-#define PIN_LAT   A2  //PF5 - LAT on all Panels
-#define PIN_OE    A5  //PF0 - OE on all Panels
+#define PIN_CLK   A2  //PF4 - CLK on all Panels
+#define PIN_LAT   A3  //PF5 - LAT on all Panels
+#define PIN_OE    A4  //PF0 - OE on all Panels
 
 byte frame[4][384];
+
+// esp32 timer bits from https://docs.espressif.com/projects/arduino-esp32/en/latest/api/timer.html
+hw_timer_t *timer = NULL;
+volatile SemaphoreHandle_t timerSemaphore;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+volatile uint32_t isrCounter = 0;
+volatile uint32_t lastIsrAt = 0;
+volatile uint32_t lastIsrDurationMicros = 0;
+
 
 void FillBuffer(byte b){
   for(uint8_t x=0; x<4; x++){
@@ -150,36 +185,82 @@ void setpixel(byte x, byte y, byte col) {
 uint8_t bank = 0;
 
 void UpdateFrame() {
+
+  if( isrCounter % 500 == 0 )
+  {
+    Serial.print(lastIsrDurationMicros);
+    Serial.print(", ");
+    Serial.println(isrCounter);
+  }
+   
   byte * f = frame[bank];
   for (uint16_t n = 0; n<384; n++) {
-    PORTD = *f;      // We use the low nibble on PortD for Panel 1 & 2
-    PORTB = *f++;    // We use the high nibble on PortB for Panel 3 & 4
-    digitalWriteFast(PIN_CLK, LOW);
-    digitalWriteFast(PIN_CLK, HIGH);
+    /*
+       Port map for Arduino Micro (ATMega32U4)
+       7     6     5     4     3     2     1     0
+  PB  D11   D10   D9    D8    MISO  MOSI  SCK   RX/SS
+  PC  D13   D5    X     X     X     X     X     X
+  PD  D6    D12   TX    D4    D1    D0    D2    D3
+  PE  X     D7    X     X     X     HWB   X     X
+  PF  A0    A1    A2    A3    X     X     A4    A5
+  */
+    //PORTD = *f;      // We use the low nibble on PortD for Panel 1 & 2
+    //PORTB = *f++;    // We use the high nibble on PortB for Panel 3 & 4
+
+    byte b1 = *f;
+    if( false && isrCounter % 500 == 0 )
+  {
+
+    Serial.print(0!=(b1&0b0001));
+    Serial.print(" ");
+    Serial.print(0!=(b1&0b0010));
+    Serial.print(", ");
+  }
+    digitalWrite(PIN_D1, 0!= (b1&0b0001));
+    digitalWrite(PIN_D2, 0!= (b1&0b0010));
+    digitalWrite(PIN_D3, 0!= (b1&0b0100));
+    digitalWrite(PIN_D4, 0!= (b1&0b1000));
+
+    digitalWrite(PIN_D5, 0!= (b1&0b00010000));
+    digitalWrite(PIN_D6, 0!= (b1&0b00100000));
+    digitalWrite(PIN_D7, 0!= (b1&0b01000000));
+    digitalWrite(PIN_D8, 0!= (b1&0b10000000));
+
+    f++;
+    
+    digitalWrite(PIN_CLK, LOW);
+
+    digitalWrite(PIN_CLK, HIGH);
     }
 
-  digitalWriteFast(PIN_OE,HIGH);     // disable output
+  digitalWrite(PIN_OE,HIGH);     // disable output
   if (bank & 0x01) {
-    digitalWriteFast(PIN_A0, HIGH);
+    digitalWrite(PIN_A0, HIGH);
   } else {
-    digitalWriteFast(PIN_A0, LOW);
+    digitalWrite(PIN_A0, LOW);
   }
   if (bank & 0x02) {
-    digitalWriteFast(PIN_A1, HIGH);
+    digitalWrite(PIN_A1, HIGH);
   } else {
-    digitalWriteFast(PIN_A1, LOW);
+    digitalWrite(PIN_A1, LOW);
   }
-  digitalWriteFast(PIN_LAT, HIGH);   // toggle latch
-  digitalWriteFast(PIN_LAT, LOW);
-  digitalWriteFast(PIN_OE, LOW);     // enable output
+
+  digitalWrite(PIN_LAT, HIGH);   // toggle latch
+
+  digitalWrite(PIN_LAT, LOW);
+  digitalWrite(PIN_OE, LOW);     // enable output
 
   if (++bank>3) bank=0;
+
+ 
 }
 
 
 void setup() {
   Serial.begin(115200);
-  //Serial.println("Begin...");
+  Serial.println("Begin...");
+
+
   
   pinMode(PIN_D1, OUTPUT);
   pinMode(PIN_D2, OUTPUT);
@@ -209,23 +290,40 @@ void setup() {
   digitalWrite(PIN_LAT, LOW);
   digitalWrite(PIN_CLK, LOW);
 
-//  FillBuffer(0xFF);         // Set all LEDs on. (White)
+  //FillBuffer(0xFF);         // Set all LEDs on. (White)
   FillBuffer(0x00);         // Set all LEDs off. (Black)
 
-  // initialize Timer1 ~400Hz
-  noInterrupts();           // disable all interrupts
-  TCCR1A = 0;
-  TCCR1B = 0;
-  TCNT1  = 0;
-  OCR1A = 160;              // compare match register 16MHz/256/390Hz
-  TCCR1B |= (1 << WGM12);   // CTC mode
-  TCCR1B |= (1 << CS12);    // 256 prescaler 
-  TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
-  interrupts();             // enable all interrupts
+  // initialize Timer at ~400Hz
+  // Create semaphore to inform us when the timer has fired
+  timerSemaphore = xSemaphoreCreateBinary();
+
+  // Set timer frequency to 1Mhz
+  timer = timerBegin(1000000);
+
+  // Attach onTimer function to our timer.
+  timerAttachInterrupt(timer, &onTimer);
+
+  int32_t hz = 200; //400;
+  int32_t interval = 1000000/hz;
+  timerAlarm(timer, interval, true, 0);
 }
 
-ISR(TIMER1_COMPA_vect){     // timer compare interrupt service routine
+void ARDUINO_ISR_ATTR onTimer() {
+  long isrStart = micros();
+
+  // Increment the counter and set the time of ISR
+  portENTER_CRITICAL_ISR(&timerMux);
+  isrCounter = isrCounter + 1;
+  lastIsrAt = millis();
+  portEXIT_CRITICAL_ISR(&timerMux);
+  // Give a semaphore that we can check in the loop
+  xSemaphoreGiveFromISR(timerSemaphore, NULL);
+  // It is safe to use digitalRead/Write here if you want to toggle an output
+
   UpdateFrame();
+  long isrEnd = micros();
+
+  lastIsrDurationMicros = isrEnd-isrStart;
 }
 
 #define LED_BLACK 0
@@ -287,7 +385,8 @@ void testFastLines(uint16_t color1, uint16_t color2) {
   for(y=0; y<h; y+=4) panel.drawFastHLine(0, y, w, color1);
   for(x=0; x<w; x+=4) panel.drawFastVLine(x, 0, h, color2);
 }
-
+}
+*/
 void testFilledRects(uint16_t color1, uint16_t color2) {
   int n, i, i2,
     cx = panel.width()  / 2 - 1,
@@ -344,7 +443,7 @@ void testRoundRects() {
     panel.drawRoundRect(cx-i2, cy-i2, i, i, i/8, LED_YELLOW);
   }
 }
-*/
+
 
 /*
 //#include <fonts/FreeSerifBoldItalic9pt7b.h>
@@ -404,20 +503,44 @@ const unsigned char LHSlogoBitmap [] PROGMEM = {
 
 void loop(){
 // Setup clears all LEDs to off, so scren will be blank when entering loop for the first time
+/*FillBuffer(0xFF);
+  delay(2000);
+FillBuffer(0x00);
+  delay(2000);
+  return;
+*/
+/*
+panel.fillScreen(LED_WHITE);
+  delay(2000);
+  panel.fillScreen(LED_BLACK);
+  delay(2000);
 
-  //testText1to8();
+return;
+*/
+  panel.fillScreen(LED_RED);
+  delay(2000);
+  panel.fillScreen(LED_BLUE);
+  delay(2000);
+  panel.fillScreen(LED_GREEN);
+  delay(2000);
+  panel.fillScreen(0);
+  delay(2000);
+  
+  testText1to8();
+  delay(2000);
+  
   //panel.drawCircle(5,5,5,LED_WHITE);
   //testText();
   //testFastLines(LED_RED, LED_BLUE);
-  //testTriangles();
+  testTriangles();
   //testRoundRects();
   //testFilledRects(LED_CYAN, LED_MAGENTA);
   //testFilledCircles(8, LED_GREEN);
   //testFonts();
   //panel.drawBitmap(0, 0, (const uint8_t *)&LHSlogoBitmap, 64, 64, LED_WHITE, LED_BLUE);
 
-  FillBuffer(0xFF); 		// turn all LED's on
-  delay(100000);
+  //FillBuffer(0xFF); 		// turn all LED's on
+  delay(2000);
 
 }
 
