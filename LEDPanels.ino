@@ -130,6 +130,8 @@ volatile uint32_t isrCounter = 0;
 volatile uint32_t lastIsrAt = 0;
 volatile uint32_t lastIsrDurationMicros = 0;
 
+volatile bool flagUpdatingFrame = false;
+volatile bool flagDrawing = false;
 
 void FillBuffer(byte b){
   for(uint8_t x=0; x<4; x++){
@@ -189,6 +191,11 @@ void setpixel(byte x, byte y, byte col) {
 uint8_t bank = 0;
 
 void UpdateFrame() {
+
+  if( flagDrawing )
+    return;
+
+  flagUpdatingFrame = true;
 
   if( isrCounter % 500 == 0 )
   {
@@ -256,7 +263,7 @@ void UpdateFrame() {
 
   if (++bank>3) bank=0;
 
- 
+  flagUpdatingFrame = false;
 }
 
 
@@ -324,6 +331,7 @@ void ARDUINO_ISR_ATTR onTimer() {
   xSemaphoreGiveFromISR(timerSemaphore, NULL);
   // It is safe to use digitalRead/Write here if you want to toggle an output
 
+  
   UpdateFrame();
   long isrEnd = micros();
 
@@ -505,36 +513,83 @@ const unsigned char LHSlogoBitmap [] PROGMEM = {
 };
 */
 
-
-void loop(){
-
-
-  static int y = 0;
-  static int x = 0;
+// draw a blob with a solid center and a probabilistic dither to the outside
+void fuzzyBlob(int16_t x0, int16_t y0, int16_t dx, int16_t dy, uint16_t color)
+{
   int w = panel.width();
   int h = panel.height();
 
-  panel.fillScreen(LED_GREEN);
-  testText1to8();
- 
+  for(int16_t x = x0-dx; x <= x0+dx; x++)
+  {
+    for( int16_t y = y0-dy; y<= y0+dy; y++)
+    {
+
+      float probability = 1.0 - ((fabs(x-x0)/((float)dx)) * (fabs(y-y0)/((float)dy)));
+      /*
+      Serial.print(x-x0);
+      Serial.print(", ");
+      Serial.print(y-y0);
+      Serial.print(" - ");
+      
+      Serial.println(probability);
+      */
+      
+      if( random(100)<probability*100.0)
+        panel.drawPixel(x%w, y%h, color);
+    }
+  }
+  
+}
+
+// a moving light near the top to stop people walking into it
+void spinner()
+{
+  static float pos = 0;
+  static float rps = 0.5; // revs per sec
+  int w = panel.width();
+  int h = panel.height();
+  float pps = rps*w;  // pixel per sec
+
+  static int32_t lastT = 0;
+  int32_t now = micros();
+
+  pos = pos + (now-lastT)*0.000001*pps;
+  pos = fmod(pos,w);
+  lastT = now;
+
+  fuzzyBlob(w-5, (int)pos, 7, 3, LED_RED);
+  /*
+  // short vertical line
+  for( int x =w-1; x>w-10; x--)
+  {
+    
+    panel.drawPixel(x, (int)pos,LED_RED);
+    panel.drawPixel(x, ((int)pos+1)%h,LED_RED);
+  }
+  */
+  
+}
+
+void draw()
+{
+  if( flagUpdatingFrame ) // don't draw during update, to avoid tearing
+    return;
+
+  flagDrawing = true;
+  
+
+  FillBuffer(0x00);
+  spinner();
+
+  flagDrawing = false;
+
+}
+void loop(){
+
+  draw();
+  delay(100); // need some delay to allow screen to update
   return;
   
-  
-  //panel.drawLine(0,  y, w-1, y, LED_BLUE);
-  //panel.drawLine(x,  0, x, h-1, LED_BLUE);
-  //panel.drawLine(0,0,x,y, LED_RED);
-
-  panel.drawRect(x, y, 10, 10, LED_BLUE);
-  panel.drawRect(0,0, 3,3,LED_RED);
- 
-  x++;
-  y++;
-  if( x >= w || y >= h)
-  {
-    x = 0;
-    y = 0;
-  }
-
   delay(200);
   return;
 
