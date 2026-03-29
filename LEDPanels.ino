@@ -541,6 +541,46 @@ void fuzzyBlob(int16_t x0, int16_t y0, int16_t dx, int16_t dy, uint16_t color)
   
 }
 
+// draw a bar all the way across the x direction at the specified 
+void fuzzyBar(int16_t x0, int16_t dx, uint16_t color)
+{
+  int w = panel.width();
+  int h = panel.height();
+
+ 
+  for(int16_t x = x0-dx; x < x0+dx; x++)
+  {
+    for( int16_t y = 0; y<=h; y++)
+    {
+      float probability = 1.0 -  (fabs(x-x0)/((float)dx));
+      
+      if( random(100)<probability*100.0)
+        panel.drawPixel(x%w, y%h, color);
+    }
+  }
+}
+float fmap(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void bouncer()
+{
+
+  float pos;
+
+  float t = millis()/5000.0;
+  float s = sin(t*2.0*3.1415);
+
+  pos = fmap(s, -1.0, 1.0, 5, panel.width()-10);
+
+  float fatness = fmap(pos,5,panel.width()-10,2,15);
+
+  //Serial.print("s "); Serial.print(s); Serial.print(" pos "); Serial.println(pos);
+  fuzzyBar(pos, fatness, LED_MAGENTA);
+  fuzzyBar(pos+fatness/2, fatness/2, LED_CYAN);
+
+}
 // a moving light near the top to stop people walking into it
 void spinner()
 {
@@ -557,7 +597,7 @@ void spinner()
   pos = fmod(pos,w);
   lastT = now;
 
-  fuzzyBlob(w-5, (int)pos, 7, 3, LED_RED);
+  fuzzyBlob(w-5, (int)pos, 4,8, LED_RED);
   /*
   // short vertical line
   for( int x =w-1; x>w-10; x--)
@@ -579,8 +619,11 @@ void draw()
   
 
   FillBuffer(0x00);
-  spinner();
 
+  bouncer();
+
+  spinner();
+  
   flagDrawing = false;
 
 }
