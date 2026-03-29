@@ -161,11 +161,15 @@ void LedPanel::drawBitmapMem(int16_t x, int16_t y, const uint8_t *bitmap, int16_
 
 // bb describes which data lines drive which of the 4 panels.
 // By adjusting the order of the bits in the array, you can change the panel order visually.
-byte bb[8] = { 0x40, 0x80, 0x10, 0x20, 0x04, 0x08, 0x01, 0x02 };
+//byte bb[8] = { 0x40, 0x80, 0x10, 0x20, 0x04, 0x08, 0x01, 0x02 };
+byte bb[8] = { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80 };
 
 // Set a pixel to a specific 3 bit colour (8 colours)
 // 0b000 = black (off), 0b001 = Blue, 0b010 = Green, 0b100 = Red, 0b011 = Cyan, 0b101 = Magenta, 0b110 = Yellow, 0b111 = White, etc.
 void setpixel(byte x, byte y, byte col) {
+  if( x<0 || y<0 || x>=panel.width() || y>=panel.height())
+    return;
+
   int16_t off = (x&7) + (x & 0xf8)*6 + ((y & 4)*2);
 //  int16_t off = (x&7) + (x >> 3)*48 + ((y & 4)*2);
   byte row = y & 3;
@@ -234,12 +238,12 @@ void UpdateFrame() {
     }
 
   digitalWrite(PIN_OE,HIGH);     // disable output
-  if (bank & 0x01) {
+  if (( bank & 0x01)) {
     digitalWrite(PIN_A0, HIGH);
   } else {
     digitalWrite(PIN_A0, LOW);
   }
-  if (bank & 0x02) {
+  if (( bank & 0x02)) {
     digitalWrite(PIN_A1, HIGH);
   } else {
     digitalWrite(PIN_A1, LOW);
@@ -303,7 +307,7 @@ void setup() {
   // Attach onTimer function to our timer.
   timerAttachInterrupt(timer, &onTimer);
 
-  int32_t hz = 200; //400;
+  int32_t hz = 200; //400 is too high now I am writing bits out individually;
   int32_t interval = 1000000/hz;
   timerAlarm(timer, interval, true, 0);
 }
@@ -501,23 +505,39 @@ const unsigned char LHSlogoBitmap [] PROGMEM = {
 };
 */
 
-void loop(){
-// Setup clears all LEDs to off, so scren will be blank when entering loop for the first time
-/*FillBuffer(0xFF);
-  delay(2000);
-FillBuffer(0x00);
-  delay(2000);
-  return;
-*/
-/*
-panel.fillScreen(LED_WHITE);
-  delay(2000);
-  panel.fillScreen(LED_BLACK);
-  delay(2000);
 
-return;
-*/
-  panel.fillScreen(LED_RED);
+void loop(){
+
+
+  static int y = 0;
+  static int x = 0;
+  int w = panel.width();
+  int h = panel.height();
+
+  panel.fillScreen(LED_GREEN);
+  testText1to8();
+ 
+  return;
+  
+  
+  //panel.drawLine(0,  y, w-1, y, LED_BLUE);
+  //panel.drawLine(x,  0, x, h-1, LED_BLUE);
+  //panel.drawLine(0,0,x,y, LED_RED);
+
+  panel.drawRect(x, y, 10, 10, LED_BLUE);
+  panel.drawRect(0,0, 3,3,LED_RED);
+ 
+  x++;
+  y++;
+  if( x >= w || y >= h)
+  {
+    x = 0;
+    y = 0;
+  }
+
+  delay(200);
+  return;
+
   delay(2000);
   panel.fillScreen(LED_BLUE);
   delay(2000);
