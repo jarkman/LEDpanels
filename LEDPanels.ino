@@ -90,6 +90,7 @@ the various text functions and fonts.
 
 #include <Adafruit_GFX.h>
 #include <gfxfont.h>
+#include "FastPin.h"
 
 // Running without interrupts, with everything done from loop(), ought to be smoother but get some odd uneven brightness effects I do not understand
 #define USE_INTERRUPTS
@@ -122,6 +123,20 @@ LedPanel panel;
 #define PIN_LAT   A3  //PF5 - LAT on all Panels
 #define PIN_OE    A4  //PF0 - OE on all Panels
 
+FastPin pin_d1(PIN_D1, OUTPUT);
+FastPin pin_d2(PIN_D2, OUTPUT);
+FastPin pin_d3(PIN_D3, OUTPUT);
+FastPin pin_d4(PIN_D4, OUTPUT);
+FastPin pin_d5(PIN_D5, OUTPUT);
+FastPin pin_d6(PIN_D6, OUTPUT);
+FastPin pin_d7(PIN_D7, OUTPUT);
+FastPin pin_d8(PIN_D8, OUTPUT);
+FastPin pin_a0(PIN_A0, OUTPUT);
+FastPin pin_a1(PIN_A1, OUTPUT);
+FastPin pin_clk(PIN_CLK, OUTPUT);
+FastPin pin_lat(PIN_LAT, OUTPUT);
+FastPin pin_oe(PIN_OE, OUTPUT);
+
 byte frame[4][384];
 
 // esp32 timer bits from https://docs.espressif.com/projects/arduino-esp32/en/latest/api/timer.html
@@ -132,6 +147,8 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 volatile uint32_t isrCounter = 0;
 volatile uint32_t lastIsrAt = 0;
 volatile uint32_t lastIsrDurationMicros = 0;
+
+uint32_t drawDuration = 0;
 
 volatile bool flagUpdatingFrame = false;
 volatile bool flagDrawing = false;
@@ -203,68 +220,54 @@ void UpdateFrame() {
 
   if( isrCounter % 500 == 0 )
   {
+    Serial.print("updateFrame took ");
     Serial.print(lastIsrDurationMicros);
-    Serial.print(", ");
+    Serial.print("us, draw took ");
+    Serial.print(drawDuration);
+    Serial.print("us, ");
     Serial.println(isrCounter);
   }
    
   byte * f = frame[bank];
   for (uint16_t n = 0; n<384; n++) {
-    /*
-       Port map for Arduino Micro (ATMega32U4)
-       7     6     5     4     3     2     1     0
-  PB  D11   D10   D9    D8    MISO  MOSI  SCK   RX/SS
-  PC  D13   D5    X     X     X     X     X     X
-  PD  D6    D12   TX    D4    D1    D0    D2    D3
-  PE  X     D7    X     X     X     HWB   X     X
-  PF  A0    A1    A2    A3    X     X     A4    A5
-  */
-    //PORTD = *f;      // We use the low nibble on PortD for Panel 1 & 2
-    //PORTB = *f++;    // We use the high nibble on PortB for Panel 3 & 4
+
 
     byte b1 = *f;
     if( false && isrCounter % 500 == 0 )
-  {
+    {
 
-    Serial.print(0!=(b1&0b0001));
-    Serial.print(" ");
-    Serial.print(0!=(b1&0b0010));
-    Serial.print(", ");
-  }
-    digitalWrite(PIN_D1, 0!= (b1&0b0001));
-    digitalWrite(PIN_D2, 0!= (b1&0b0010));
-    digitalWrite(PIN_D3, 0!= (b1&0b0100));
-    digitalWrite(PIN_D4, 0!= (b1&0b1000));
+      Serial.print(0!=(b1&0b0001));
+      Serial.print(" ");
+      Serial.print(0!=(b1&0b0010));
+      Serial.print(", ");
+    }
 
-    digitalWrite(PIN_D5, 0!= (b1&0b00010000));
-    digitalWrite(PIN_D6, 0!= (b1&0b00100000));
-    digitalWrite(PIN_D7, 0!= (b1&0b01000000));
-    digitalWrite(PIN_D8, 0!= (b1&0b10000000));
+    pin_d1.write( 0!= (b1&0b0001));
+    pin_d2.write( 0!= (b1&0b0010));
+    pin_d3.write( 0!= (b1&0b0100));
+    pin_d4.write( 0!= (b1&0b1000));
+    pin_d5.write( 0!= (b1&0b00010000));
+    pin_d6.write( 0!= (b1&0b00100000));
+    pin_d7.write( 0!= (b1&0b01000000));
+    pin_d8.write( 0!= (b1&0b10000000));
 
     f++;
     
-    digitalWrite(PIN_CLK, LOW);
+    pin_clk.write(false);
+    pin_clk.write(true);
 
-    digitalWrite(PIN_CLK, HIGH);
     }
 
-  digitalWrite(PIN_OE,HIGH);     // disable output
-  if (( bank & 0x01)) {
-    digitalWrite(PIN_A0, HIGH);
-  } else {
-    digitalWrite(PIN_A0, LOW);
-  }
-  if (( bank & 0x02)) {
-    digitalWrite(PIN_A1, HIGH);
-  } else {
-    digitalWrite(PIN_A1, LOW);
-  }
 
-  digitalWrite(PIN_LAT, HIGH);   // toggle latch
+  pin_oe.write(true);
+  pin_a0.write(bank & 0x01);
+  pin_a1.write(bank & 0x02);
 
-  digitalWrite(PIN_LAT, LOW);
-  digitalWrite(PIN_OE, LOW);     // enable output
+  pin_lat.write(true);
+  pin_lat.write(false);
 
+  pin_oe.write(false);
+ 
   if (++bank>3) bank=0;
   long isrEnd = micros();
 
@@ -277,52 +280,24 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Begin...");
 
-
-  
-  pinMode(PIN_D1, OUTPUT);
-  pinMode(PIN_D2, OUTPUT);
-  pinMode(PIN_D3, OUTPUT);
-  pinMode(PIN_D4, OUTPUT);
-
-  pinMode(PIN_D5, OUTPUT);
-  pinMode(PIN_D6, OUTPUT);
-  pinMode(PIN_D7, OUTPUT);
-  pinMode(PIN_D8, OUTPUT);
-
-  pinMode(PIN_A0, OUTPUT);
-  pinMode(PIN_A1, OUTPUT);
-  pinMode(PIN_CLK, OUTPUT);
-  pinMode(PIN_LAT, OUTPUT);
-  pinMode(PIN_OE, OUTPUT);
-
-  digitalWrite(PIN_D1, LOW);
-  digitalWrite(PIN_D2, LOW);
-  digitalWrite(PIN_D3, LOW);
-  digitalWrite(PIN_D4, LOW);
-
-  digitalWrite(PIN_A0, LOW);
-  digitalWrite(PIN_A1, LOW);
-
-  digitalWrite(PIN_OE, HIGH);
-  digitalWrite(PIN_LAT, LOW);
-  digitalWrite(PIN_CLK, LOW);
-
   //FillBuffer(0xFF);         // Set all LEDs on. (White)
   FillBuffer(0x00);         // Set all LEDs off. (Black)
 
 #ifdef USE_INTERRUPTS
-  // initialize Timer at ~400Hz
+  // initialize Timer 
   // Create semaphore to inform us when the timer has fired
   timerSemaphore = xSemaphoreCreateBinary();
 
   // Set timer frequency to 1Mhz
-  timer = timerBegin(1000000);
+  int32_t timerHz = 1000000;
+  timer = timerBegin(timerHz);
 
   // Attach onTimer function to our timer.
   timerAttachInterrupt(timer, &onTimer);
 
-  int32_t hz = 200; //400 is too high now I am writing bits out individually;
-  int32_t interval = 1000000/hz;
+  // frame update takes ~330us so we can update at 3kz if we want!
+  int32_t hz = 1000;
+  int32_t interval = timerHz/hz;
   timerAlarm(timer, interval, true, 0);
 #endif // USE_INTERRUPTS
 }
@@ -618,10 +593,12 @@ void spinner()
   
 }
 
-void draw()
+void draw() // currently takes up to 50ms
 {
   if( flagUpdatingFrame ) // don't draw during update, to avoid tearing
     return;
+
+  long startT = micros();
 
   flagDrawing = true;
   
@@ -632,6 +609,8 @@ void draw()
 
   spinner();
   
+  drawDuration = micros()-startT;
+
   flagDrawing = false;
 
 }
