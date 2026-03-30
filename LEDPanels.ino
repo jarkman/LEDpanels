@@ -92,7 +92,9 @@ the various text functions and fonts.
 #include <gfxfont.h>
 #include "FastPin.h"
 
-// Running without interrupts, with everything done from loop(), ought to be smoother but get some odd uneven brightness effects I do not understand
+// Running without interrupts, with everything done from loop(), ought to be smoother but 
+// I get some odd uneven brightness effects I do not understand.
+// The last bank to be updated, bank 3, is the only bright one. The other three are super-dim. Weird.
 #define USE_INTERRUPTS
 
 class LedPanel : public Adafruit_GFX
@@ -215,6 +217,8 @@ void UpdateFrame() {
   if( flagDrawing )
     return;
 
+
+
   long isrStart = micros();
   flagUpdatingFrame = true;
 
@@ -268,7 +272,7 @@ void UpdateFrame() {
 
   pin_oe.write(false);
  
-  if (++bank>3) bank=0;
+  
   long isrEnd = micros();
 
   lastIsrDurationMicros = isrEnd-isrStart;
@@ -317,6 +321,9 @@ void ARDUINO_ISR_ATTR onTimer() {
 
   
   UpdateFrame();
+  bank++;
+  if(bank>3)
+    bank = 0;
   
 }
 #endif USE_INTERRUPTS
@@ -619,7 +626,7 @@ long lastDraw = 0;
 long lastUpdate = 0;
 
 long drawInterval = 100000;
-long updateInterval = 5000;
+long updateInterval = 25000;
 
 void loop(){
 
@@ -629,15 +636,18 @@ void loop(){
   {
     lastDraw = now;
     draw();
+
+
   }
 
 #ifndef USE_INTERRUPTS
 if(now-lastUpdate>updateInterval)
 {
   lastUpdate = now;
-  //for( int i = 0; i < 4; i ++) // do all 4 banks
-
-    UpdateFrame(); // takes 2ms
+  //for( bank = 0; bank < 4; bank ++) // do all 4 banks
+    UpdateFrame(); 
+    bank++;
+    if(bank>3) bank = 0;
 }
 #endif
 
