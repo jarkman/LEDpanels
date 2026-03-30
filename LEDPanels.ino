@@ -91,6 +91,9 @@ the various text functions and fonts.
 #include <Adafruit_GFX.h>
 #include <gfxfont.h>
 
+// Running without interrupts, with everything done from loop(), ought to be smoother but get some odd uneven brightness effects I do not understand
+#define USE_INTERRUPTS
+
 class LedPanel : public Adafruit_GFX
 {
   public:
@@ -195,6 +198,7 @@ void UpdateFrame() {
   if( flagDrawing )
     return;
 
+  long isrStart = micros();
   flagUpdatingFrame = true;
 
   if( isrCounter % 500 == 0 )
@@ -262,7 +266,9 @@ void UpdateFrame() {
   digitalWrite(PIN_OE, LOW);     // enable output
 
   if (++bank>3) bank=0;
+  long isrEnd = micros();
 
+  lastIsrDurationMicros = isrEnd-isrStart;
   flagUpdatingFrame = false;
 }
 
@@ -304,6 +310,7 @@ void setup() {
   //FillBuffer(0xFF);         // Set all LEDs on. (White)
   FillBuffer(0x00);         // Set all LEDs off. (Black)
 
+#ifdef USE_INTERRUPTS
   // initialize Timer at ~400Hz
   // Create semaphore to inform us when the timer has fired
   timerSemaphore = xSemaphoreCreateBinary();
@@ -317,10 +324,12 @@ void setup() {
   int32_t hz = 200; //400 is too high now I am writing bits out individually;
   int32_t interval = 1000000/hz;
   timerAlarm(timer, interval, true, 0);
+#endif // USE_INTERRUPTS
 }
 
+#ifdef USE_INTERRUPTS
 void ARDUINO_ISR_ATTR onTimer() {
-  long isrStart = micros();
+  
 
   // Increment the counter and set the time of ISR
   portENTER_CRITICAL_ISR(&timerMux);
@@ -333,10 +342,9 @@ void ARDUINO_ISR_ATTR onTimer() {
 
   
   UpdateFrame();
-  long isrEnd = micros();
-
-  lastIsrDurationMicros = isrEnd-isrStart;
+  
 }
+#endif USE_INTERRUPTS
 
 #define LED_BLACK 0
 #define LED_BLUE 1
@@ -627,30 +635,43 @@ void draw()
   flagDrawing = false;
 
 }
+
+long lastDraw = 0;
+long lastUpdate = 0;
+
+long drawInterval = 100000;
+long updateInterval = 5000;
+
 void loop(){
 
-  draw();
-  delay(100); // need some delay to allow screen to update
-  return;
-  
-  delay(200);
-  return;
+  long now = micros();
 
-  delay(2000);
-  panel.fillScreen(LED_BLUE);
-  delay(2000);
-  panel.fillScreen(LED_GREEN);
-  delay(2000);
-  panel.fillScreen(0);
-  delay(2000);
+  if( now-lastDraw>drawInterval)
+  {
+    lastDraw = now;
+    draw();
+  }
+
+#ifndef USE_INTERRUPTS
+if(now-lastUpdate>updateInterval)
+{
+  lastUpdate = now;
+  //for( int i = 0; i < 4; i ++) // do all 4 banks
+
+    UpdateFrame(); // takes 2ms
+}
+#endif
+
+#ifdef USE_INTERRUPTS
+  delay(100); // need some delay to allow UpdateFrame to run - if this is to short we get uneven brightness, because updates don't happen while draw() is running
+#endif //USE_INTERRUPTS
   
-  testText1to8();
-  delay(2000);
-  
+  // assorted useful tests
+  //testText1to8();
   //panel.drawCircle(5,5,5,LED_WHITE);
   //testText();
   //testFastLines(LED_RED, LED_BLUE);
-  testTriangles();
+  //testTriangles();
   //testRoundRects();
   //testFilledRects(LED_CYAN, LED_MAGENTA);
   //testFilledCircles(8, LED_GREEN);
@@ -658,7 +679,7 @@ void loop(){
   //panel.drawBitmap(0, 0, (const uint8_t *)&LHSlogoBitmap, 64, 64, LED_WHITE, LED_BLUE);
 
   //FillBuffer(0xFF); 		// turn all LED's on
-  delay(2000);
+
 
 }
 
